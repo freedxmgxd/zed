@@ -129,6 +129,8 @@ pub(crate) struct LinuxCommon {
     )]
     wake_sender: Sender<()>,
     wake_listener_started: bool,
+    #[cfg(feature = "wayland")]
+    pub(crate) dbus_menu_server: Option<crate::linux::dbusmenu::DBusMenuServer>,
 }
 
 impl LinuxCommon {
@@ -165,6 +167,8 @@ impl LinuxCommon {
             menus: Vec::new(),
             wake_sender,
             wake_listener_started: false,
+            #[cfg(feature = "wayland")]
+            dbus_menu_server: None,
         };
 
         (common, main_receiver, wake_receiver)
@@ -583,6 +587,10 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     fn set_menus(&self, menus: Vec<Menu>, _keymap: &Keymap) {
         self.inner.with_common(|common| {
             common.menus = menus.into_iter().map(|menu| menu.owned()).collect();
+            #[cfg(feature = "wayland")]
+            if let Some(server) = &common.dbus_menu_server {
+                server.set_menus(common.menus.clone());
+            }
         })
     }
 

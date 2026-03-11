@@ -4,6 +4,7 @@ use std::{
     os::fd::{AsRawFd, BorrowedFd},
     path::PathBuf,
     rc::{Rc, Weak},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -70,6 +71,8 @@ use wayland_protocols::{
     xdg::dialog::v1::client::xdg_dialog_v1::XdgDialogV1,
 };
 use wayland_protocols_plasma::blur::client::{org_kde_kwin_blur, org_kde_kwin_blur_manager};
+
+use super::appmenu::client::{org_kde_kwin_appmenu, org_kde_kwin_appmenu_manager};
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 use xkbcommon::xkb::ffi::XKB_KEYMAP_FORMAT_TEXT_V1;
 use xkbcommon::xkb::{self, KEYMAP_COMPILE_NO_FLAGS, Keycode};
@@ -94,7 +97,7 @@ use crate::linux::{
     xdg_desktop_portal::{Event as XDPEvent, XDPEventSource},
 };
 use gpui::{
-    AnyWindowHandle, Bounds, Capslock, CursorStyle, DevicePixels, DisplayId, FileDropEvent,
+    Action, AnyWindowHandle, Bounds, Capslock, CursorStyle, DevicePixels, DisplayId, FileDropEvent,
     ForegroundExecutor, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, ModifiersChangedEvent,
     MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection,
     Pixels, PlatformDisplay, PlatformInput, PlatformKeyboardLayout, PlatformWindow, Point,
@@ -142,6 +145,7 @@ pub struct Globals {
     pub decoration_manager: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
     pub blur_manager: Option<org_kde_kwin_blur_manager::OrgKdeKwinBlurManager>,
+    pub appmenu_manager: Option<org_kde_kwin_appmenu_manager::OrgKdeKwinAppmenuManager>,
     pub text_input_manager: Option<zwp_text_input_manager_v3::ZwpTextInputManagerV3>,
     pub gesture_manager: Option<zwp_pointer_gestures_v1::ZwpPointerGesturesV1>,
     pub dialog: Option<xdg_wm_dialog_v1::XdgWmDialogV1>,
@@ -184,6 +188,7 @@ impl Globals {
             decoration_manager: globals.bind(&qh, 1..=1, ()).ok(),
             layer_shell: globals.bind(&qh, 1..=5, ()).ok(),
             blur_manager: globals.bind(&qh, 1..=1, ()).ok(),
+            appmenu_manager: globals.bind(&qh, 1..=2, ()).ok(),
             text_input_manager: globals.bind(&qh, 1..=1, ()).ok(),
             gesture_manager: globals.bind(&qh, 1..=3, ()).ok(),
             dialog: globals.bind(&qh, dialog_v..=dialog_v, ()).ok(),
@@ -279,6 +284,7 @@ pub(crate) struct WaylandClientState {
     pending_activation: Option<PendingActivation>,
     startup_activation_token: Option<String>,
     event_loop: Option<EventLoop<'static, WaylandClientStatePtr>>,
+    dbus_service_name: Option<String>,
     pub common: LinuxCommon,
     ime_enabled: Option<bool>,
 }
@@ -773,11 +779,125 @@ impl WaylandClient {
             startup_activation_token,
             event_loop: Some(event_loop),
             ime_enabled: None,
+            dbus_service_name: None,
         }));
 
         WaylandSource::new(conn, event_queue)
             .insert(handle)
             .unwrap();
+
+        // Start the DBusMenu server if the compositor supports global menus.
+        {
+            let has_appmenu = state.borrow().globals.appmenu_manager.is_some();
+            if has_appmenu {
+                let dbus_menu_server = crate::linux::dbusmenu::DBusMenuServer::new();
+                let service_name = format!("com.zed.dbusmenu.pid{}", std::process::id());
+
+                // Channel for sending menu actions from the DBus thread to the main thread.
+                let (action_tx, action_rx) = calloop::channel::channel::<Box<dyn Action>>();
+                let (will_open_tx, will_open_rx) = calloop::channel::channel::<()>();
+
+                dbus_menu_server.set_action_callback({
+                    let action_tx = action_tx.clone();
+                    Box::new(move |action| {
+                        action_tx.send(action).ok();
+                    })
+                });
+                dbus_menu_server.set_will_open_callback({
+                    let will_open_tx = will_open_tx.clone();
+                    Arc::new(move || {
+                        will_open_tx.send(()).ok();
+                    })
+                });
+
+                state
+                    .borrow()
+                    .loop_handle
+                    .insert_source(action_rx, {
+                        let client = Rc::downgrade(&state);
+                        move |event, _, _| {
+                            if let calloop::channel::Event::Msg(action) = event {
+                                if let Some(client) = client.upgrade() {
+                                    let mut state = client.borrow_mut();
+                                    if let Some(callback) =
+                                        state.common.callbacks.app_menu_action.as_mut()
+                                    {
+                                        callback(action.as_ref());
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .log_err();
+
+                state
+                    .borrow()
+                    .loop_handle
+                    .insert_source(will_open_rx, {
+                        let client = Rc::downgrade(&state);
+                        move |event, _, _| {
+                            if let calloop::channel::Event::Msg(()) = event {
+                                if let Some(client) = client.upgrade() {
+                                    let mut state = client.borrow_mut();
+                                    if let Some(callback) =
+                                        state.common.callbacks.will_open_app_menu.as_mut()
+                                    {
+                                        callback();
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .log_err();
+
+                state.borrow_mut().common.dbus_menu_server = Some(dbus_menu_server.clone());
+                state.borrow_mut().dbus_service_name = Some(service_name.clone());
+
+                let object_path = crate::linux::dbusmenu::DBUSMENU_OBJECT_PATH.to_string();
+                std::thread::Builder::new()
+                    .name("dbus-menu".into())
+                    .spawn(move || {
+                        let rt = match tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                        {
+                            Ok(rt) => rt,
+                            Err(error) => {
+                                log::error!("Failed to create tokio runtime for DBusMenu: {error}");
+                                return;
+                            }
+                        };
+                        dbus_menu_server.set_runtime_handle(rt.handle().clone());
+
+                        rt.block_on(async move {
+                            let dbus_menu_server_for_service = dbus_menu_server.clone();
+                            match zbus::connection::Builder::session()
+                                .and_then(|builder| builder.name(service_name.as_str()))
+                                .and_then(|builder| {
+                                    builder.serve_at(
+                                        object_path.as_str(),
+                                        dbus_menu_server_for_service,
+                                    )
+                                }) {
+                                Ok(builder) => match builder.build().await {
+                                    Ok(connection) => {
+                                        dbus_menu_server.set_connection(connection.clone());
+                                        log::info!("DBusMenu server started on {service_name}");
+                                        std::future::pending::<()>().await;
+                                    }
+                                    Err(error) => {
+                                        log::error!("Failed to build DBus connection: {error}");
+                                    }
+                                },
+                                Err(error) => {
+                                    log::error!("Failed to configure DBus connection: {error}");
+                                }
+                            }
+                        });
+                    })
+                    .log_err();
+            }
+        }
 
         Self(state)
     }
@@ -901,6 +1021,18 @@ impl LinuxClient for WaylandClient {
             state.consume_startup_activation_token(&window.0.surface());
         }
         state.windows.insert(surface_id, window.0.clone());
+
+        if let (Some(appmenu_manager), Some(service_name)) = (
+            state.globals.appmenu_manager.as_ref(),
+            state.dbus_service_name.as_ref(),
+        ) {
+            let surface = window.0.surface();
+            let appmenu = appmenu_manager.create(&surface, &state.globals.qh, ());
+            appmenu.set_address(
+                service_name.clone(),
+                crate::linux::dbusmenu::DBUSMENU_OBJECT_PATH.to_string(),
+            );
+        }
 
         Ok(Box::new(window))
     }
@@ -1225,6 +1357,8 @@ delegate_noop!(WaylandClientStatePtr: ignore zxdg_decoration_manager_v1::ZxdgDec
 delegate_noop!(WaylandClientStatePtr: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
 delegate_noop!(WaylandClientStatePtr: ignore xdg_positioner::XdgPositioner);
 delegate_noop!(WaylandClientStatePtr: ignore org_kde_kwin_blur_manager::OrgKdeKwinBlurManager);
+delegate_noop!(WaylandClientStatePtr: ignore org_kde_kwin_appmenu_manager::OrgKdeKwinAppmenuManager);
+delegate_noop!(WaylandClientStatePtr: ignore org_kde_kwin_appmenu::OrgKdeKwinAppmenu);
 delegate_noop!(WaylandClientStatePtr: ignore zwp_text_input_manager_v3::ZwpTextInputManagerV3);
 delegate_noop!(WaylandClientStatePtr: ignore org_kde_kwin_blur::OrgKdeKwinBlur);
 delegate_noop!(WaylandClientStatePtr: ignore wp_viewporter::WpViewporter);
