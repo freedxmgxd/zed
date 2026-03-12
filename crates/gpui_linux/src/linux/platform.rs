@@ -129,7 +129,7 @@ pub(crate) struct LinuxCommon {
     )]
     wake_sender: Sender<()>,
     wake_listener_started: bool,
-    #[cfg(all(feature = "wayland", feature = "global-menu"))]
+    #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
     pub(crate) dbus_menu_server: Option<crate::linux::dbusmenu::DBusMenuServer>,
 }
 
@@ -167,7 +167,7 @@ impl LinuxCommon {
             menus: Vec::new(),
             wake_sender,
             wake_listener_started: false,
-            #[cfg(all(feature = "wayland", feature = "global-menu"))]
+            #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
             dbus_menu_server: None,
         };
 
@@ -283,7 +283,7 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     }
 
     fn is_global_menu_active(&self) -> bool {
-        #[cfg(all(feature = "wayland", feature = "global-menu"))]
+        #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
         {
             self.inner.with_common(|common| {
                 common
@@ -292,7 +292,7 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
                     .is_some_and(|server| server.is_connected())
             })
         }
-        #[cfg(not(all(feature = "wayland", feature = "global-menu")))]
+        #[cfg(not(all(any(feature = "wayland", feature = "x11"), feature = "global-menu")))]
         {
             false
         }
@@ -603,7 +603,7 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     fn set_menus(&self, menus: Vec<Menu>, keymap: &Keymap) {
         self.inner.with_common(|common| {
             common.menus = menus.into_iter().map(|menu| menu.owned()).collect();
-            #[cfg(all(feature = "wayland", feature = "global-menu"))]
+            #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
             if let Some(server) = &common.dbus_menu_server {
                 server.set_menus(common.menus.clone(), keymap);
             }
