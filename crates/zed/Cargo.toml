@@ -15,6 +15,7 @@ workspace = true
 tracy = ["ztracing/tracy"]
 # LEAK_BACKTRACE=1 cargo run --features zed/track-project-leak --profile release-fast
 track-project-leak = ["gpui/leak-detection"]
+global-menu = ["gpui_platform/global-menu"]
 test-support = [
     "gpui/test-support",
     "gpui_platform/screen-capture",
