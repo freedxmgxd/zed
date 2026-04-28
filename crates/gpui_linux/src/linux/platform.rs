@@ -283,19 +283,12 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     }
 
     fn is_global_menu_active(&self) -> bool {
-        #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
-        {
-            self.inner.with_common(|common| {
-                common
-                    .dbus_menu_server
-                    .as_ref()
-                    .is_some_and(|server| server.is_connected())
-            })
-        }
-        #[cfg(not(all(any(feature = "wayland", feature = "x11"), feature = "global-menu")))]
-        {
-            false
-        }
+        self.inner.with_common(|common| {
+            common
+                .dbus_menu_server
+                .as_ref()
+                .is_some_and(|server| server.is_connected())
+        })
     }
 
     fn restart(&self, binary_path: Option<PathBuf>) {
@@ -601,12 +594,8 @@ impl<P: LinuxClient + 'static> Platform for LinuxPlatform<P> {
     }
 
     fn set_menus(&self, menus: Vec<Menu>, keymap: &Keymap) {
-        #[cfg(not(all(any(feature = "wayland", feature = "x11"), feature = "global-menu")))]
-        let _ = keymap;
-
         self.inner.with_common(|common| {
             common.menus = menus.into_iter().map(|menu| menu.owned()).collect();
-            #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
             if let Some(server) = &common.dbus_menu_server {
                 server.set_menus(common.menus.clone(), keymap);
             }
