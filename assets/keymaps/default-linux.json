@@ -1209,6 +1209,7 @@
       "paste": "terminal::Paste",
       "shift-insert": "terminal::Paste",
       "ctrl-shift-v": "terminal::Paste",
+      "ctrl-v": "terminal::Paste",
       "ctrl-enter": "assistant::InlineAssist",
       "alt-b": ["terminal::SendText", "\u001bb"],
       "alt-f": ["terminal::SendText", "\u001bf"],
@@ -1246,6 +1247,12 @@
       "ctrl-shift-5": "pane::SplitRight",
       "ctrl->": "agent::AddSelectionToThread",
     },
+  },
+  {
+    "context": "Terminal && selection",
+    "bindings": {
+      "ctrl-c": "terminal::Copy"
+    }
   },
   {
     "context": "AgentPanel && Terminal",
