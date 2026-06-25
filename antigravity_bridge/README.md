@@ -4,10 +4,10 @@ This bridge acts as a local proxy server that enables the Zed editor to use the 
 
 ## Requirements
 
-Ensure you have the required packages installed on your system:
+Ensure you have the Google Antigravity SDK installed on your system:
 
 ```bash
-pip install google-antigravity fastapi uvicorn
+pip install google-antigravity
 ```
 
 ## Running the Bridge
