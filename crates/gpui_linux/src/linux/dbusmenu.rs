@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use calloop::{LoopHandle, channel::Sender as CalloopSender};
 use gpui::{Action, KeyContext, KeybindingKeystroke, Keymap, OsAction, OwnedMenu, OwnedMenuItem};
-use util::ResultExt as _;
+use gpui_util::ResultExt as _;
 use zbus::zvariant::{OwnedValue, Value};
 
 use std::cell::RefCell;
