@@ -174,7 +174,6 @@ impl TestServer {
             }
             let settings = SettingsStore::test(cx);
             cx.set_global(settings);
-            theme_settings::init(theme::LoadThemes::JustBase, cx);
             release_channel::init(semver::Version::new(0, 0, 0), cx);
         });
 
@@ -357,9 +356,7 @@ impl TestServer {
             collab_ui::init(&app_state, cx);
             file_finder::init(cx);
             menu::init();
-            cx.bind_keys(
-                settings::KeymapFile::load_asset_allow_partial_failure(os_keymap, cx).unwrap(),
-            );
+            cx.bind_keys(settings::KeymapFile::load_asset_cached(os_keymap, cx).unwrap());
             language_model::LanguageModelRegistry::test(cx);
         });
 
@@ -599,7 +596,6 @@ impl TestServer {
                 blob_store_secret_key: None,
                 blob_store_bucket: None,
                 zed_client_checksum_seed: None,
-                seed_path: None,
                 kinesis_region: None,
                 kinesis_stream: None,
                 kinesis_access_key: None,
@@ -658,11 +654,9 @@ impl TestClient {
     }
 
     pub fn current_user_id(&self, cx: &TestAppContext) -> UserId {
-        UserId::from_proto(
-            self.app_state
-                .user_store
-                .read_with(cx, |user_store, _| user_store.current_user().unwrap().id),
-        )
+        UserId::from_proto(self.app_state.user_store.read_with(cx, |user_store, _| {
+            user_store.current_user().unwrap().legacy_id
+        }))
     }
 
     pub async fn wait_for_current_user(&self, cx: &TestAppContext) {
@@ -731,17 +725,17 @@ impl TestClient {
                 current: store
                     .contacts()
                     .iter()
-                    .map(|contact| contact.user.github_login.clone().to_string())
+                    .map(|contact| contact.user.username.clone().to_string())
                     .collect(),
                 outgoing_requests: store
                     .outgoing_contact_requests()
                     .iter()
-                    .map(|user| user.github_login.clone().to_string())
+                    .map(|user| user.username.clone().to_string())
                     .collect(),
                 incoming_requests: store
                     .incoming_contact_requests()
                     .iter()
-                    .map(|user| user.github_login.clone().to_string())
+                    .map(|user| user.username.clone().to_string())
                     .collect(),
             })
     }
