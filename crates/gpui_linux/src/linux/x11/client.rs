@@ -218,7 +218,6 @@ pub struct X11ClientState {
 
     pub(crate) supports_xinput_gestures: bool,
 
-    #[cfg(feature = "global-menu")]
     pub(crate) dbus_service_name: Option<String>,
     pub(crate) dbus_unique_name: Option<String>,
     pub(crate) dbus_menu_thread: Option<std::thread::JoinHandle<()>>,
@@ -607,7 +606,6 @@ impl X11Client {
 
             supports_xinput_gestures,
 
-            #[cfg(feature = "global-menu")]
             dbus_service_name: None,
             dbus_unique_name: None,
             dbus_menu_thread: None,

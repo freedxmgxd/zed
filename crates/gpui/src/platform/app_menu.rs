@@ -182,8 +182,9 @@ impl MenuItem {
     /// Only for [`MenuItem::Action`], otherwise, will be ignored
     pub fn checked(mut self, checked: bool) -> Self {
         match &mut self {
-            MenuItem::Action { checked: old, .. } => {
+            MenuItem::Action { checked: old, checkable, .. } => {
                 *old = checked;
+                *checkable = true;
             }
             _ => {}
         }
@@ -224,19 +225,6 @@ impl MenuItem {
             MenuItem::Action { disabled, .. } => *disabled,
             MenuItem::Submenu(submenu) => submenu.disabled,
             _ => false,
-            MenuItem::Action {
-                action,
-                os_action,
-                name,
-                ..
-            } => MenuItem::Action {
-                name,
-                action,
-                os_action,
-                checkable: true,
-                checked,
-            },
-            _ => self,
         }
     }
 }

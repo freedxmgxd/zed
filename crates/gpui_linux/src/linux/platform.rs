@@ -129,7 +129,6 @@ pub(crate) struct LinuxCommon {
     )]
     wake_sender: Sender<()>,
     wake_listener_started: bool,
-    #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
     pub(crate) dbus_menu_server: Option<crate::linux::dbusmenu::DBusMenuServer>,
 }
 
@@ -167,7 +166,6 @@ impl LinuxCommon {
             menus: Vec::new(),
             wake_sender,
             wake_listener_started: false,
-            #[cfg(all(any(feature = "wayland", feature = "x11"), feature = "global-menu"))]
             dbus_menu_server: None,
         };
 

@@ -830,7 +830,6 @@ impl WaylandClient {
             startup_activation_token,
             event_loop: Some(event_loop),
             ime_enabled: None,
-            #[cfg(feature = "global-menu")]
             dbus_service_name: None,
             dbus_menu_thread: None,
             appmenu_objects: HashMap::default(),
